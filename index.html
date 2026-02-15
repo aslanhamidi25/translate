@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Al-Munsyi - Penerjemah & Harakat Otomatis</title>
+    
+    <!-- Load React & ReactDOM dari CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Load Babel untuk memproses JSX di browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Load Tailwind CSS dari CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Arabic -->
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Noto+Sans+Arabic:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; }
+        .font-arabic { font-family: 'Amiri', 'Noto Sans Arabic', serif; }
+        /* Animasi Loading */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 selection:bg-emerald-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        // --- Ikon SVG Manual (Pengganti Lucide-React agar tanpa dependensi) ---
+        const Icon = ({ path, className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
+        );
+
+        const Icons = {
+            BookOpen: (props) => <Icon {...props} path={<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>} />,
+            Sparkles: (props) => <Icon {...props} path={<><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 5h4"/><path d="M3 9h4"/></>} />,
+            Languages: (props) => <Icon {...props} path={<><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></>} />,
+            ImageIcon: (props) => <Icon {...props} path={<><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></>} />,
+            FileText: (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></>} />,
+            Upload: (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></>} />,
+            X: (props) => <Icon {...props} path={<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>} />,
+            Check: (props) => <Icon {...props} path={<polyline points="20 6 9 17 4 12"/>} />,
+            Copy: (props) => <Icon {...props} path={<><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></>} />,
+            ArrowRight: (props) => <Icon {...props} path={<><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></>} />,
+            AlertCircle: (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></>} />,
+        };
+
+        // --- Komponen Utama ---
+        const AlMunsyiApp = () => {
+            const [activeTab, setActiveTab] = useState('text');
+            const [inputText, setInputText] = useState('');
+            const [selectedImage, setSelectedImage] = useState(null);
+            const [imagePreview, setImagePreview] = useState(null);
+            
+            const [loading, setLoading] = useState(false);
+            const [result, setResult] = useState(null);
+            const [error, setError] = useState(null);
+            const [copied, setCopied] = useState(false);
+            
+            const fileInputRef = useRef(null);
+            const apiKey = "AIzaSyBqkFj4hsjkCIddmteyttMJ6Ki02DYBjBA"; // API Key Anda
+
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64String = reader.result;
+                        setSelectedImage({
+                            file: file,
+                            base64: base64String.split(',')[1],
+                            mimeType: file.type
+                        });
+                        setImagePreview(reader.result);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    setError("Mohon unggah file gambar (JPG/PNG).");
+                }
+            };
+
+            const clearImage = () => {
+                setSelectedImage(null);
+                setImagePreview(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            };
+
+            const handleAnalyze = async () => {
+                if (activeTab === 'text' && !inputText.trim()) return;
+                if (activeTab === 'image' && !selectedImage) return;
+
+                setLoading(true);
+                setError(null);
+                setResult(null);
+
+                try {
+                    const systemPrompt = `Anda adalah ahli bahasa Arab (Nahwu & Shorof) dan penerjemah profesional. 
+                    Tugas Anda:
+                    1. Jika input adalah gambar, transkripsikan teks Arab di dalamnya terlebih dahulu dengan akurat.
+                    2. Berikan harakat lengkap (Syakal/Tashkeel) yang benar secara gramatikal (I'rab) pada teks tersebut.
+                    3. Terjemahkan ke Bahasa Indonesia yang alami dan akurat.
+                    4. Berikan analisis I'rab singkat untuk kata-kata kunci (maksimal 3 poin).
+                    
+                    Output MURNI JSON dengan struktur:
+                    {
+                        "vocalized_text": "Teks arab berharakat",
+                        "translation": "Terjemahan Indonesia",
+                        "grammar_notes": ["Poin 1", "Poin 2"]
+                    }`;
+
+                    let userContentPart;
+                    
+                    if (activeTab === 'image' && selectedImage) {
+                        userContentPart = [
+                            { text: "Analisis gambar teks Arab ini. Transkripsikan, beri harakat, dan terjemahkan." },
+                            {
+                                inlineData: {
+                                    mimeType: selectedImage.mimeType,
+                                    data: selectedImage.base64
+                                }
+                            }
+                        ];
+                    } else {
+                        userContentPart = [{ text: `Analisis teks berikut: "${inputText}"` }];
+                    }
+
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                contents: [{ parts: userContentPart }],
+                                systemInstruction: { parts: [{ text: systemPrompt }] },
+                                generationConfig: { responseMimeType: "application/json" }
+                            }),
+                        }
+                    );
+
+                    if (!response.ok) throw new Error("Gagal menghubungkan ke layanan AI. Periksa koneksi atau kuota API.");
+
+                    const data = await response.json();
+                    if (!data.candidates || !data.candidates[0].content) throw new Error("Tidak ada respon dari AI. Coba lagi.");
+
+                    const aiResponseText = data.candidates[0].content.parts[0].text;
+                    const cleanJson = aiResponseText.replace(/```json|```/g, '').trim();
+                    const aiResponse = JSON.parse(cleanJson);
+                    
+                    setResult(aiResponse);
+
+                } catch (err) {
+                    console.error(err);
+                    setError(err.message || "Terjadi kesalahan saat memproses data.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const copyToClipboard = (text) => {
+                navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    {/* Header */}
+                    <header className="bg-emerald-700 text-white py-6 shadow-lg">
+                        <div className="container mx-auto px-4 flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                                <Icons.BookOpen className="w-8 h-8 text-emerald-100" />
+                                <div>
+                                    <h1 className="text-2xl font-bold tracking-tight">Al-Munsyi</h1>
+                                    <p className="text-emerald-100 text-sm">Pemberi Harakat & Penerjemah Cerdas</p>
+                                </div>
+                            </div>
+                            <div className="hidden md:flex items-center space-x-2 text-sm bg-emerald-800 px-3 py-1 rounded-full border border-emerald-600">
+                                <Icons.Sparkles className="w-4 h-4 text-yellow-300" />
+                                <span>Didukung oleh AI Vision</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="container mx-auto px-4 py-8 max-w-4xl flex-grow">
+                        
+                        {/* Tabs */}
+                        <div className="flex space-x-4 mb-6">
+                            <button onClick={() => setActiveTab('text')} className={`flex items-center gap-2 px-6 py-3 rounded-full font-semibold transition-all ${activeTab === 'text' ? 'bg-emerald-600 text-white shadow-md transform scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+                                <Icons.Languages className="w-4 h-4" /> Input Teks
+                            </button>
+                            <button onClick={() => setActiveTab('image')} className={`flex items-center gap-2 px-6 py-3 rounded-full font-semibold transition-all ${activeTab === 'image' ? 'bg-emerald-600 text-white shadow-md transform scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+                                <Icons.ImageIcon className="w-4 h-4" /> Upload Gambar
+                            </button>
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8 min-h-[300px] flex flex-col">
+                            {activeTab === 'text' ? (
+                                <>
+                                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                        <label className="font-semibold text-slate-700 flex items-center gap-2"><Icons.FileText className="w-4 h-4" /> Ketik / Tempel Teks Arab</label>
+                                    </div>
+                                    <div className="p-6 flex-grow">
+                                        <textarea dir="rtl" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="Contoh: ذهب محمد إلى المدرسة" className="w-full h-48 p-4 text-2xl border-2 border-slate-200 rounded-xl focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none resize-none font-arabic leading-loose"></textarea>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                        <label className="font-semibold text-slate-700 flex items-center gap-2"><Icons.Upload className="w-4 h-4" /> Unggah Foto Teks</label>
+                                    </div>
+                                    <div className="p-6 flex-grow flex flex-col items-center justify-center">
+                                        {!imagePreview ? (
+                                            <div onClick={() => fileInputRef.current.click()} className="w-full h-48 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group">
+                                                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 group-hover:bg-emerald-100 transition-colors"><Icons.ImageIcon className="w-8 h-8 text-slate-400 group-hover:text-emerald-600" /></div>
+                                                <p className="text-slate-600 font-medium">Klik untuk upload foto</p>
+                                                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+                                            </div>
+                                        ) : (
+                                            <div className="relative w-full h-full flex flex-col items-center">
+                                                <div className="relative max-h-64 rounded-lg overflow-hidden border border-slate-200 shadow-md">
+                                                    <img src={imagePreview} alt="Preview" className="max-h-64 object-contain" />
+                                                    <button onClick={clearImage} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-sm transition-colors"><Icons.X className="w-4 h-4" /></button>
+                                                </div>
+                                                <p className="mt-3 text-sm text-slate-500 flex items-center gap-1"><Icons.Check className="w-4 h-4 text-emerald-500" /> Gambar siap diproses</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
+                                <button onClick={handleAnalyze} disabled={loading || (activeTab === 'text' ? !inputText.trim() : !selectedImage)} className={`flex items-center gap-2 px-8 py-3 rounded-full font-bold text-white shadow-md transition-all transform hover:scale-105 active:scale-95 ${loading || (activeTab === 'text' ? !inputText.trim() : !selectedImage) ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-emerald-500/30'}`}>
+                                    {loading ? <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Memproses...</> : <>Proses {activeTab === 'text' ? 'Teks' : 'Gambar'} <Icons.ArrowRight className="w-5 h-5" /></>}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Error */}
+                        {error && (
+                            <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3">
+                                <Icons.AlertCircle className="w-6 h-6 shrink-0" />
+                                <p>{error}</p>
+                            </div>
+                        )}
+
+                        {/* Results */}
+                        {result && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
+                                    <div className="p-4 bg-emerald-50/50 border-b border-emerald-100 flex justify-between items-center">
+                                        <span className="font-bold text-emerald-800">{activeTab === 'image' ? 'Hasil Transkripsi & Harakat' : 'Teks Berharakat (Tashkeel)'}</span>
+                                        <button onClick={() => copyToClipboard(result.vocalized_text)} className="p-2 hover:bg-emerald-100 rounded-lg transition-colors text-emerald-600" title="Salin teks">
+                                            {copied ? <Icons.Check className="w-5 h-5" /> : <Icons.Copy className="w-5 h-5" />}
+                                        </button>
+                                    </div>
+                                    <div className="p-8 text-center bg-gradient-to-b from-white to-emerald-50/20">
+                                        <p dir="rtl" className="text-4xl leading-[2.5] font-arabic text-slate-800">{result.vocalized_text}</p>
+                                    </div>
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Icons.Languages className="w-5 h-5 text-emerald-600" /> Terjemahan Indonesia</h3>
+                                        <p className="text-lg text-slate-600 leading-relaxed italic">"{result.translation}"</p>
+                                    </div>
+                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Icons.BookOpen className="w-5 h-5 text-emerald-600" /> Catatan Nahwu (Grammar)</h3>
+                                        {result.grammar_notes && result.grammar_notes.length > 0 ? (
+                                            <ul className="space-y-3">
+                                                {result.grammar_notes.map((note, idx) => (
+                                                    <li key={idx} className="flex items-start gap-3 text-slate-600 bg-slate-50 p-3 rounded-lg text-sm">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-2 shrink-0" /><span>{note}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : <p className="text-slate-400 text-sm">Tidak ada catatan khusus.</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <footer className="py-8 text-center text-slate-400 text-sm">
+                        <p>Al-Munsyi &copy; {new Date().getFullYear()} - Standalone HTML Version</p>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<AlMunsyiApp />);
+    </script>
+</body>
+</html>
